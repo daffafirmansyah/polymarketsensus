@@ -74,8 +74,10 @@ def build_status_panel(snap: MarketSnapshot) -> Panel:
         u = (cp - pos.entry_price) * pos.size
         u_color = "green" if u >= 0 else "red"
         lines += [
-            "", "[bold]🔴 {pos.entry_side}[/bold]",
-            f"  {pos.size:.0f} @ {pos.entry_price:.3f} → {cp:.3f} | [bold {u_color}]${u:+.3f}[/]",
+            "",
+            f"[bold]🔴 {pos.entry_side}[/bold]",
+            f"  {pos.size:.0f} @ {pos.entry_price:.3f} → {cp:.3f}",
+            f"  Unrealized: [bold {u_color}]${u:+.3f}[/bold {u_color}]",
         ]
     else:
         lines += ["", "⚪ No position"]
@@ -89,13 +91,17 @@ def build_consensus_panel(snap: MarketSnapshot) -> Panel:
     if pos.is_open and pos.entry_price > 0:
         cp = snap.yes_price if pos.entry_side == "YES" else snap.no_price
         tp_hit = cp >= strategy_config.TP_PRICE
-        return Panel(
+        tp_tag = "green" if tp_hit else "dim white"
+        sl_risk = snap.consensus_side and snap.consensus_side != pos.entry_side
+        sl_tag = "red" if sl_risk else "dim white"
+        content = (
             f"[bold]🔴 {pos.entry_side}[/bold]\n"
             f"Entry: {pos.entry_price:.3f} → {cp:.3f}\n\n"
-            f"[{'green' if tp_hit else 'dim'}]TP: {strategy_config.TP_PRICE*100:.0f}¢ {'✅' if tp_hit else ''}[/]\n"
-            f"[dim]SL: Dynamic >75%[/]\n\nT-{snap.seconds_remaining}s",
-            title="🎯 Exit Monitor", border_style="bold yellow"
+            f"[{tp_tag}]TP: {strategy_config.TP_PRICE*100:.0f}¢ {'✅' if tp_hit else ''}[/{tp_tag}]\n"
+            f"[{sl_tag}]SL: Dynamic flip {'⚠️' if sl_risk else ''}[/{sl_tag}]\n\n"
+            f"T-{snap.seconds_remaining}s"
         )
+        return Panel(content, title="🎯 Exit Monitor", border_style="bold yellow")
     if snap.consensus_side:
         c = "green" if snap.consensus_side == "YES" else "red"
         return Panel(

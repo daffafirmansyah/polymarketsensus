@@ -117,8 +117,13 @@ class Strategy:
         return True, side, entry_price
 
     def get_position_size(self, entry_price: float) -> float:
-        """Calculate position size based on max trade shares."""
-        return float(self.cfg.MIN_TRADE)  # Use min trade for safety
+        """Convert USDC amount to shares at current price."""
+        if entry_price <= 0:
+            return 0.0
+        shares = self.cfg.MIN_TRADE / entry_price
+        # Cap at max trade amount
+        max_shares = self.cfg.MAX_TRADE / entry_price
+        return min(shares, max_shares)
 
     # ── Exit / Take Profit ────────────────
 

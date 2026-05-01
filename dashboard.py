@@ -157,7 +157,7 @@ def build_strategy_panel() -> Panel:
             f"TP: {cfg.TP_PRICE*100:.0f}¢",
             f"MAX_ENTRY: {cfg.MAX_ENTRY*100:.0f}¢",
             f"Entry: T-{cfg.ENTRY_WINDOW_START}s to T-{cfg.ENTRY_WINDOW_END}s",
-            f"Max Trade: {cfg.MAX_TRADE} | Min: {cfg.MIN_TRADE}",
+            f"Max Trade: ${cfg.MAX_TRADE:.2f} | Min: ${cfg.MIN_TRADE:.2f}",
             f"Max Position: {cfg.MAX_POSITION}",
         ]),
         title="⚙️ Strategy", border_style="dim cyan"
@@ -179,7 +179,7 @@ class Dashboard:
 
     def render(self) -> Layout:
         layout = Layout()
-        layout.split(Layout(name="top", size=12), Layout(name="bottom"))
+        layout.split(Layout(name="top", size=12), Layout(name="log", size=16), Layout(name="spacer"))
         top = Layout()
         if self.last_snap:
             top.split_row(
@@ -196,9 +196,9 @@ class Dashboard:
                 Layout(build_strategy_panel()),
             )
         layout["top"].update(top)
-        visible = self.log_lines[-self.visible_log_lines:] if len(self.log_lines) > self.visible_log_lines else self.log_lines
+        visible = self.log_lines[-16:] if len(self.log_lines) > 16 else self.log_lines
         log_text = "\n".join(visible) if visible else "Waiting..."
-        layout["bottom"].update(Panel(Text(log_text, style="dim"), title="📜 Trade Log", border_style="blue"))
+        layout["log"].update(Panel(Text(log_text, style="dim"), title="📜 Trade Log", border_style="blue"))
         return layout
 
     def update(self, snap: MarketSnapshot, decision: dict):

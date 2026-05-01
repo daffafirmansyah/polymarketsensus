@@ -17,9 +17,9 @@ class StrategyConfig:
     MAX_ENTRY: float = 0.80           # max entry price in cents
     ENTRY_WINDOW_START: int = 100     # seconds before market close
     ENTRY_WINDOW_END: int = 10        # seconds before market close
-    MAX_TRADE: int = 6                # max shares per trade
+    MAX_TRADE: float = 1.50           # max USDC per trade
     MAX_POSITION: int = 1             # max concurrent positions
-    MIN_TRADE: int = 5                # min shares per trade
+    MIN_TRADE: float = 1.05           # min USDC per trade
 
     @classmethod
     def from_env(cls) -> "StrategyConfig":
@@ -30,9 +30,9 @@ class StrategyConfig:
             MAX_ENTRY=float(os.getenv("MAX_ENTRY", "0.80")),
             ENTRY_WINDOW_START=int(os.getenv("ENTRY_WINDOW_START", "100")),
             ENTRY_WINDOW_END=int(os.getenv("ENTRY_WINDOW_END", "10")),
-            MAX_TRADE=int(os.getenv("MAX_TRADE", "6")),
+            MAX_TRADE=float(os.getenv("MAX_TRADE", "1.50")),
             MAX_POSITION=int(os.getenv("MAX_POSITION", "1")),
-            MIN_TRADE=int(os.getenv("MIN_TRADE", "5")),
+            MIN_TRADE=float(os.getenv("MIN_TRADE", "1.05")),
         )
 
 

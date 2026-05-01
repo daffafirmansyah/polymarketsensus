@@ -305,6 +305,14 @@ class PolymarketClient:
             logger.error(f"Balance fetch failed: {e}")
             return 0.0
 
+    def has_sufficient_balance(self, cost: float) -> tuple[bool, float]:
+        """Check if we have enough USDC for a trade. Returns (can_afford, balance)."""
+        if self.dry_run:
+            return True, 1000.0
+        balance = self.get_usdc_balance()
+        # Add 5% buffer for fees
+        return balance >= cost * 1.05, balance
+
     # ── CLOB Client (Authenticated) ────────
 
     def _get_clob_client(self) -> Optional[ClobClient]:
@@ -372,14 +380,23 @@ class PolymarketClient:
             )
             options = PartialCreateOrderOptions(tick_size="0.01", neg_risk=False)
             order = clob.create_and_post_order(order_args, options)
-            result.success = True
+
             result.order_id = order.get("orderID", order.get("id", ""))
-            result.filled = float(order.get("filled", size))
-            result.cost = float(order.get("totalCost", price * size))
-            logger.info(
-                f"[REAL] Order: {result.order_id} | {side} {result.filled} "
-                f"@ {price:.2f} (cost ${result.cost:.3f})"
-            )
+            actual_filled = float(order.get("filled", 0))
+            actual_price = float(order.get("price", price))
+
+            if actual_filled > 0:
+                result.success = True
+                result.filled = actual_filled
+                result.price = actual_price
+                result.cost = actual_price * actual_filled
+                logger.info(
+                    f"[LIVE] {side} {result.filled}/{size} filled @ {actual_price:.3f} "
+                    f"(cost ${result.cost:.3f}) id={result.order_id[:12]}"
+                )
+            else:
+                result.error = f"Order placed but 0 filled (id: {result.order_id[:12]})"
+                logger.warning(result.error)
         except Exception as e:
             result.error = str(e)
             logger.error(f"Order failed: {e}")

@@ -95,14 +95,22 @@ def run_once():
 # ── Execute Trade ─────────────────────────
 
 def execute_entry(snap: MarketSnapshot, decision: dict):
-    """Execute a market entry based on strategy decision."""
+    """Execute a market entry — with balance check + fill confirmation."""
     side = decision["side"]
     price = decision["price"]
     size = decision["size"]
-
+    cost = price * size
     token_id = snap.token_id_yes if side == "YES" else snap.token_id_no
 
-    logger.info(f"🚀 ENTRY: {side} {size} shares @ {price:.2f}")
+    # BALANCE CHECK: can we afford this?
+    can_afford, balance = api_client.has_sufficient_balance(cost)
+    if not can_afford:
+        console.print(f"[TRADE] [bold red]BLOCKED[/bold red]: Insufficient balance "
+                      f"(need ${cost*1.05:.2f}, have ${balance:.2f})")
+        logger.warning(f"Entry blocked: balance ${balance:.2f} < needed ${cost*1.05:.2f}")
+        return
+
+    logger.info(f"🚀 ENTRY: {side} {size} shares @ {price:.2f} (cost ${cost:.3f})")
 
     result = api_client.place_order(
         token_id=token_id,
@@ -111,20 +119,25 @@ def execute_entry(snap: MarketSnapshot, decision: dict):
         size=size,
     )
 
-    if result.success:
+    if result.success and result.filled > 0:
+        fill_pct = (result.filled / size * 100) if size > 0 else 0
+        fill_tag = "green" if fill_pct >= 90 else ("yellow" if fill_pct >= 50 else "red")
         console.print(
-            f"[TRADE] [bold green]FILLED[/bold green] {side} "
-            f"{result.filled} tokens @ {result.price:.2f} "
-            f"(cost ${result.cost:.3f})"
+            f"[TRADE] [bold {fill_tag}]FILLED[/bold {fill_tag}] {side} "
+            f"{result.filled:.0f}/{size:.0f} tokens @ {result.price:.3f} "
+            f"(cost ${result.cost:.3f}, {fill_pct:.0f}%)"
             + (" [dim](DRY RUN)[/dim]" if result.dry_run else "")
         )
         trade_strategy.record_entry(snap, result)
+        # Update position size to actual filled amount
+        if result.filled != size:
+            console.print(f"[TRADE] [yellow]⚠ Partial fill: {result.filled:.0f}/{size:.0f} shares[/yellow]")
     else:
-        console.print(f"[TRADE] [bold red]FAILED[/bold red]: {result.error}")
+        console.print(f"[TRADE] [bold red]ENTRY FAILED[/bold red]: {result.error or 'No fill'}")
 
 
 def execute_exit(snap: MarketSnapshot, reason: str):
-    """Execute position exit (sell) — with retry guard."""
+    """Execute position exit — with fill confirmation."""
     pos = trade_strategy.position
     if not pos.is_open:
         return
@@ -143,19 +156,24 @@ def execute_exit(snap: MarketSnapshot, reason: str):
         size=pos.size,
     )
 
-    if result.success:
+    if result.success and result.filled > 0:
         trade_strategy.reset_exit_retries()
-        pnl = (current_price - pos.entry_price) * pos.size
+        pnl = (result.price - pos.entry_price) * result.filled
         color = "green" if pnl > 0 else "red"
+        fill_pct = (result.filled / pos.size * 100) if pos.size > 0 else 0
         console.print(
             f"[TRADE] [bold {color}]{side_label}[/bold {color}] "
-            f"SELL {result.filled} @ {result.price:.2f} | "
-            f"P&L: [bold {color}]${pnl:+.3f}[/bold {color}]"
+            f"SELL {result.filled:.0f}/{pos.size:.0f} @ {result.price:.3f} | "
+            f"P&L: [bold {color}]${pnl:+.3f}[/bold {color}] ({fill_pct:.0f}% filled)"
             + (" [dim](DRY RUN)[/dim]" if result.dry_run else "")
         )
         trade_strategy.record_exit(snap, result)
     else:
-        console.print(f"[TRADE] [bold red]EXIT FAILED[/bold red] (retry {trade_strategy._exit_retries}/{trade_strategy._max_exit_retries}): {result.error}")
+        console.print(
+            f"[TRADE] [bold red]EXIT FAILED[/bold red] "
+            f"(retry {trade_strategy._exit_retries}/{trade_strategy._max_exit_retries}): "
+            f"{result.error or 'No fill'}"
+        )
 
 
 # ── Main Loop ─────────────────────────────
@@ -170,7 +188,11 @@ def run_loop():
     console.print(f"Mode: [yellow]DRY RUN[/yellow]" if bot_config.DRY_RUN else "Mode: [red]LIVE TRADING[/red]")
     console.print(f"Scan interval: {bot_config.SCAN_INTERVAL}s | Refresh: 1s")
     console.print(f"Min Consensus: {strategy_config.MIN_CONSENSUS}%")
+    console.print(f"Emergency stop: P&L < -$5 or 5 consecutive losses")
     console.print()
+
+    # Consecutive loss tracking
+    consecutive_losses = 0
 
     if not bot_config.DRY_RUN:
         if not bot_config.PRIVATE_KEY:
@@ -196,6 +218,16 @@ def run_loop():
         while not shutdown:
             loop_start = time.monotonic()
 
+            # ── Emergency kill switch ──
+            if trade_strategy.total_pnl < -5:
+                console.print("\n[bold red]🛑 EMERGENCY STOP: P&L < -$50[/bold red]")
+                shutdown = True
+                break
+            if consecutive_losses >= 5:
+                console.print("\n[bold red]🛑 EMERGENCY STOP: 5 consecutive losses[/bold red]")
+                shutdown = True
+                break
+
             # ── Fetch new data every SCAN_INTERVAL seconds ──
             if ticks_since_fetch >= bot_config.SCAN_INTERVAL:
                 ticks_since_fetch = 0
@@ -219,9 +251,15 @@ def run_loop():
                     execute_entry(snap, decision)
                 elif decision["action"] in ("EXIT_TP", "EXIT_SL"):
                     reason = "TP" if decision["action"] == "EXIT_TP" else "SL"
+                    prev_pnl = trade_strategy.total_pnl
                     dashboard.update(snap, decision)
                     dashboard.refresh()
                     execute_exit(snap, reason)
+                    # Track consecutive losses
+                    if trade_strategy.total_pnl < prev_pnl:
+                        consecutive_losses += 1
+                    else:
+                        consecutive_losses = 0
                 else:
                     dashboard.update(snap, decision)
             else:

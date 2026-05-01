@@ -16,6 +16,7 @@ from py_clob_client_v2.clob_types import OrderArgs, PartialCreateOrderOptions
 from py_clob_client_v2.order_builder.constants import BUY, SELL
 
 from config import bot_config, strategy_config
+from btc_ws import get_btc_price as _get_btc_ws
 
 # Data API base for holders (real wallet data)
 DATA_API = "https://data-api.polymarket.com"
@@ -258,7 +259,15 @@ class PolymarketClient:
         return {}
 
     def get_btc_price(self) -> float:
-        """Fetch live BTC price from Binance (free, no key needed)."""
+        """Get BTC price from Binance WebSocket (real-time push)."""
+        price = _get_btc_ws()
+        if price > 0:
+            return price
+        # Fallback: REST
+        return self._get_btc_rest()
+
+    def _get_btc_rest(self) -> float:
+        """Fallback: Binance REST API."""
         try:
             r = _get_session().get(
                 "https://api.binance.com/api/v3/ticker/price",

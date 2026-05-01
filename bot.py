@@ -24,6 +24,7 @@ from config import bot_config, strategy_config
 from polymarket_api import client as api_client, MarketSnapshot, TradeResult
 from strategy import strategy as trade_strategy, Strategy
 from dashboard import dashboard, console, fmt_time
+import btc_ws
 
 # ── Logging Setup ─────────────────────────
 logging.basicConfig(
@@ -51,6 +52,8 @@ signal.signal(signal.SIGTERM, signal_handler)
 
 def run_once():
     """Single scan cycle — useful for testing data fetching."""
+    btc_ws.start()
+    time.sleep(1)  # wait for first WS price
     console.print(f"\n[bold cyan]🔍 Single scan — {fmt_time()}[/bold cyan]\n")
 
     snap = api_client.get_snapshot()
@@ -177,6 +180,9 @@ def run_loop():
             console.print("[yellow]⚠️  LIVE TRADING MODE — real orders will be placed![/yellow]")
             console.print()
 
+    # Start BTC WebSocket for real-time price
+    btc_ws.start()
+
     dashboard.start()
 
     # Track first-run + tick counter
@@ -236,6 +242,7 @@ def run_loop():
     except KeyboardInterrupt:
         pass
     finally:
+        btc_ws.stop()
         dashboard.stop()
         console.print("\n[bold]👋 Bot stopped.[/bold]")
         if trade_strategy.position.is_open:

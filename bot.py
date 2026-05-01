@@ -182,6 +182,8 @@ def run_loop():
 
     try:
         while not shutdown:
+            loop_start = time.monotonic()
+
             # ── Fetch new data every SCAN_INTERVAL seconds ──
             if ticks_since_fetch >= bot_config.SCAN_INTERVAL:
                 ticks_since_fetch = 0
@@ -215,13 +217,17 @@ def run_loop():
                 if snap and snap.seconds_remaining > 0:
                     snap.seconds_remaining = max(0, snap.market_end_ts - int(time.time()))
 
-            # Refresh dashboard every 1 second
+            # Refresh dashboard
             dashboard.refresh()
 
-            # Sleep 1 second
             if shutdown:
                 break
-            time.sleep(1)
+
+            # Adaptive sleep — maintain exact 1s interval
+            elapsed = time.monotonic() - loop_start
+            sleep_time = max(0, bot_config.SCAN_INTERVAL - elapsed)
+            if sleep_time > 0:
+                time.sleep(sleep_time)
             ticks_since_fetch += 1
 
     except KeyboardInterrupt:

@@ -102,16 +102,9 @@ class PolymarketClient:
             return {}
 
     def get_market_by_slug(self, slug: str) -> dict:
-        """Fetch market data from Gamma API by exact slug."""
-        cache_key = f"slug:{slug}"
-        if cache_key in self._market_cache:
-            cached, ts = self._market_cache[cache_key]
-            if time.time() - ts < 2:
-                return cached
-
+        """Fetch market data from Gamma API by exact slug — NO cache, always fresh."""
         data = self._gamma_get("/markets", {"slug": slug})
         if isinstance(data, list) and len(data) > 0:
-            self._market_cache[cache_key] = (data[0], time.time())
             return data[0]
         return {}
 

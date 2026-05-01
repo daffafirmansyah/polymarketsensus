@@ -191,7 +191,8 @@ def build_market_panel(snap: MarketSnapshot) -> Panel:
     content = (
         f"🕐 {start_str} → {end_str} UTC\n"
         f"{'📛' if remaining <= 10 else '⏳'} [{countdown_color}]{countdown}[/{countdown_color}]\n"
-        f"{blink}Market: {slug_dt} ({slug_ts})\n"
+        f"{blink}Market: {slug_dt}\n"
+        f"{snap.slug}\n"
         f"{live_dot} Updated: {fetched_str}\n\n"
         f"[bold {yes_color}]YES: {snap.yes_price:.3f}[/bold {yes_color}]  "
         f"[bold {no_color}]NO: {snap.no_price:.3f}[/bold {no_color}]\n"

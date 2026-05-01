@@ -14,6 +14,9 @@ from py_clob_client_v2.order_builder.constants import BUY, SELL
 
 from config import bot_config, strategy_config
 
+# Data API base for holders (real wallet data)
+DATA_API = "https://data-api.polymarket.com"
+
 logger = logging.getLogger("polybot.api")
 
 
@@ -147,6 +150,47 @@ class PolymarketClient:
         return self._clob_get("/book", {"token_id": token_id})
 
     # ── BTC Price ──────────────────────────
+
+    def get_holders(self, condition_id: str, limit: int = 500) -> dict:
+        """
+        Fetch REAL wallet holders from Polymarket Data API.
+        Returns individual wallet addresses with positions.
+        outcomeIndex: 0=YES, 1=NO
+        """
+        try:
+            r = requests.get(
+                f"{DATA_API}/holders",
+                params={"market": condition_id, "limit": limit},
+                timeout=10,
+            )
+            r.raise_for_status()
+            holders = r.json()
+            # Response is a list: [{token, holders: [{proxyWallet, amount, outcomeIndex}]}]
+            yes_wallets = set()
+            no_wallets = set()
+            yes_volume = 0.0
+            no_volume = 0.0
+            for token_group in holders:
+                for h in token_group.get("holders", []):
+                    addr = h.get("proxyWallet", "")
+                    amt = float(h.get("amount", 0))
+                    idx = h.get("outcomeIndex", -1)
+                    if idx == 0:  # YES
+                        yes_wallets.add(addr)
+                        yes_volume += amt
+                    elif idx == 1:  # NO
+                        no_wallets.add(addr)
+                        no_volume += amt
+            return {
+                "yes_wallets": len(yes_wallets),
+                "no_wallets": len(no_wallets),
+                "total_wallets": len(yes_wallets) + len(no_wallets),
+                "yes_volume": yes_volume,
+                "no_volume": no_volume,
+            }
+        except Exception as e:
+            logger.error(f"Holders fetch failed: {e}")
+            return {}
 
     def get_btc_price(self) -> float:
         """Fetch live BTC price from Binance (free, no key needed)."""
@@ -327,37 +371,30 @@ class PolymarketClient:
             pass
         snap.seconds_remaining = max(0, snap.market_end_ts - int(time.time()))
 
-        # 2. Get orderbooks for both YES and NO tokens
-        yes_book = {}
-        no_book = {}
-        if snap.token_id_yes:
-            yes_book = self.get_orderbook(snap.token_id_yes)
-        if snap.token_id_no:
-            no_book = self.get_orderbook(snap.token_id_no)
+        # 2. Get REAL wallet data from Data API (holders) — individual wallet addresses!
+        holders_data = {}
+        if snap.condition_id:
+            holders_data = self.get_holders(snap.condition_id)
 
-        # Parse orderbook — count ALL bids + compute volume.
-        # Public CLOB doesn't expose individual wallets.
-        # Wallets proxy: total_bid_volume / 1000 with moving average for smoothness.
-        def _parse_bids(book: dict) -> tuple:
-            """Return (order_count, total_volume) from orderbook bids."""
-            orders = 0
-            volume = 0.0
-            for entry in book.get("bids", []):
-                orders += 1
-                volume += float(entry.get("size", 0))
-            return orders, volume
-
-        snap.yes_orders, snap.yes_volume = _parse_bids(yes_book)
-        snap.no_orders, snap.no_volume = _parse_bids(no_book)
-
-        # Wallets = smooth volume-based proxy
-        total_bid_vol = snap.yes_volume + snap.no_volume
-        raw_wallets = int(total_bid_vol / 1000)
-        if not hasattr(self, '_wallet_history'):
-            self._wallet_history = [raw_wallets] * 5
-        self._wallet_history.append(raw_wallets)
-        self._wallet_history = self._wallet_history[-5:]
-        snap.total_wallets = int(sum(self._wallet_history) / len(self._wallet_history))
+        if holders_data:
+            snap.yes_orders = holders_data.get("yes_wallets", 0)
+            snap.no_orders = holders_data.get("no_wallets", 0)
+            snap.total_wallets = holders_data.get("total_wallets", 0)
+            snap.yes_volume = holders_data.get("yes_volume", 0)
+            snap.no_volume = holders_data.get("no_volume", 0)
+        else:
+            # Fallback: orderbook bids
+            yes_book = {}
+            no_book = {}
+            if snap.token_id_yes:
+                yes_book = self.get_orderbook(snap.token_id_yes)
+            if snap.token_id_no:
+                no_book = self.get_orderbook(snap.token_id_no)
+            snap.yes_orders = len(yes_book.get("bids", []))
+            snap.no_orders = len(no_book.get("bids", []))
+            snap.yes_volume = sum(float(e.get("size", 0)) for e in yes_book.get("bids", []))
+            snap.no_volume = sum(float(e.get("size", 0)) for e in no_book.get("bids", []))
+            snap.total_wallets = int((snap.yes_volume + snap.no_volume) / 300)
 
         # 3. Consensus calculation
         total_orders = snap.yes_orders + snap.no_orders

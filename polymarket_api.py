@@ -1,6 +1,7 @@
 """
 Polymarket API client — fetches real market data & executes orders.
 Uses Gamma API for market data and CLOB API for orderbook + trading.
+Optimized with connection pooling for minimal latency.
 """
 import time
 import logging
@@ -8,6 +9,8 @@ from typing import Optional
 from dataclasses import dataclass, field
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from py_clob_client_v2.client import ClobClient
 from py_clob_client_v2.clob_types import OrderArgs, PartialCreateOrderOptions
 from py_clob_client_v2.order_builder.constants import BUY, SELL
@@ -18,6 +21,19 @@ from config import bot_config, strategy_config
 DATA_API = "https://data-api.polymarket.com"
 
 logger = logging.getLogger("polybot.api")
+
+# Persistent HTTP session for connection reuse (keep-alive)
+_session = None
+
+def _get_session() -> requests.Session:
+    global _session
+    if _session is None:
+        _session = requests.Session()
+        retry = Retry(total=2, backoff_factor=0.1)
+        adapter = HTTPAdapter(pool_connections=10, pool_maxsize=10, max_retries=retry)
+        _session.mount("https://", adapter)
+        _session.mount("http://", adapter)
+    return _session
 
 
 # ──────────────────────────────────────────────
@@ -105,7 +121,7 @@ class PolymarketClient:
     def _gamma_get(self, path: str, params: dict = None) -> dict | list:
         url = f"{self.gamma}{path}"
         try:
-            r = requests.get(url, params=params, timeout=10)
+            r = _get_session().get(url, params=params, timeout=10)
             r.raise_for_status()
             return r.json()
         except Exception as e:
@@ -146,7 +162,7 @@ class PolymarketClient:
     def _clob_get(self, path: str, params: dict = None) -> dict:
         url = f"{self.clob_url}{path}"
         try:
-            r = requests.get(url, params=params, timeout=10)
+            r = _get_session().get(url, params=params, timeout=10)
             r.raise_for_status()
             return r.json()
         except Exception as e:
@@ -156,6 +172,20 @@ class PolymarketClient:
     def get_orderbook(self, token_id: str) -> dict:
         """Fetch orderbook for a specific token."""
         return self._clob_get("/book", {"token_id": token_id})
+
+    def get_orderbooks_batch(self, token_ids: list[str]) -> list[dict]:
+        """Fetch MULTIPLE orderbooks in ONE request (POST /books)."""
+        url = f"{self.clob_url}/books"
+        try:
+            body = [{"token_id": tid} for tid in token_ids if tid]
+            if not body:
+                return []
+            r = _get_session().post(url, json=body, timeout=10)
+            r.raise_for_status()
+            return r.json()
+        except Exception as e:
+            logger.error(f"CLOB batch books error: {e}")
+            return []
 
     # ── BTC Price ──────────────────────────
 
@@ -174,7 +204,7 @@ class PolymarketClient:
 
         for attempt in range(3):
             try:
-                r = requests.get(
+                r = _get_session().get(
                     f"{DATA_API}/holders",
                     params={"market": condition_id, "limit": limit},
                     headers={
@@ -230,7 +260,7 @@ class PolymarketClient:
     def get_btc_price(self) -> float:
         """Fetch live BTC price from Binance (free, no key needed)."""
         try:
-            r = requests.get(
+            r = _get_session().get(
                 "https://api.binance.com/api/v3/ticker/price",
                 params={"symbol": "BTCUSDT"},
                 timeout=5,
@@ -239,7 +269,7 @@ class PolymarketClient:
             return float(r.json()["price"])
         except Exception:
             try:
-                r = requests.get(
+                r = _get_session().get(
                     "https://api.coingecko.com/api/v3/simple/price",
                     params={"ids": "bitcoin", "vs_currencies": "usd"},
                     timeout=5,
@@ -406,13 +436,12 @@ class PolymarketClient:
             snap.yes_volume = holders_data.get("yes_volume", 0)
             snap.no_volume = holders_data.get("no_volume", 0)
 
-        # 3. Get CLOB orderbook for real-time bid/ask (NOT stale Gamma midpoint)
-        yes_book = {}
-        no_book = {}
-        if snap.token_id_yes:
-            yes_book = self.get_orderbook(snap.token_id_yes)
-        if snap.token_id_no:
-            no_book = self.get_orderbook(snap.token_id_no)
+        # 3. Get CLOB orderbooks in ONE batched request (POST /books)
+        token_ids = [t for t in [snap.token_id_yes, snap.token_id_no] if t]
+        books = self.get_orderbooks_batch(token_ids) if token_ids else []
+
+        yes_book = books[0] if len(books) > 0 else {}
+        no_book = books[1] if len(books) > 1 else {}
 
         # Extract bid/ask arrays
         yes_bids = yes_book.get("bids", [])

@@ -59,7 +59,9 @@ class MarketSnapshot:
     best_ask: float = 0.0
     no_best_bid: float = 0.0
     no_best_ask: float = 0.0
-    # Orderbook volume (CLOB real-time)
+    # CLOB orderbook (real-time, every heartbeat)
+    yes_ob_orders: int = 0
+    no_ob_orders: int = 0
     yes_ob_vol: float = 0.0
     no_ob_vol: float = 0.0
     total_ob_vol: float = 0.0
@@ -442,7 +444,9 @@ class PolymarketClient:
             except Exception:
                 pass
 
-        # Orderbook volume = sum of all bid sizes (real-time CLOB)
+        # Orderbook real-time metrics
+        snap.yes_ob_orders = len(yes_bids)
+        snap.no_ob_orders = len(no_bids)
         snap.yes_ob_vol = sum(float(e.get("size", 0)) for e in yes_bids)
         snap.no_ob_vol = sum(float(e.get("size", 0)) for e in no_bids)
         snap.total_ob_vol = snap.yes_ob_vol + snap.no_ob_vol

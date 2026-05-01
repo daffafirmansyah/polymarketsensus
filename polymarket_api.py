@@ -151,7 +151,7 @@ class PolymarketClient:
 
     # ── BTC Price ──────────────────────────
 
-    def get_holders(self, condition_id: str, limit: int = 500) -> dict:
+    def get_holders(self, condition_id: str, limit: int = 2000) -> dict:
         """
         Fetch REAL wallet holders from Polymarket Data API.
         Returns individual wallet addresses with positions.

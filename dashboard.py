@@ -81,60 +81,87 @@ def build_log_line(snap: MarketSnapshot, decision: dict, is_consensus: bool) -> 
 
 
 def build_status_panel(snap: MarketSnapshot) -> Panel:
-    """Build the status/dashboard panel."""
+    """Build the status/dashboard panel — safe for open positions."""
     pos = trade_strategy.position
 
-    # BTC price line
-    btc_line = f"₿ BTC: ${snap.btc_price:,.0f}"
-
-    # Balance
+    # BTC + Balance
     try:
         balance = api_client.get_usdc_balance()
     except Exception:
         balance = 0.0
-    bal_line = f"💵 USDC: ${balance:,.2f}"
 
     # P&L
     pnl = trade_strategy.total_pnl
     pnl_color = "green" if pnl >= 0 else "red"
     w = trade_strategy.total_wins
     l = trade_strategy.total_losses
-    pnl_line = f"📈 P&L: [bold {pnl_color}]${pnl:+.3f}[/bold {pnl_color}] | W/L: [green]{w}[/green]/[red]{l}[/red]"
+
+    lines = [
+        f"₿ BTC: ${snap.btc_price:,.0f}",
+        f"💵 USDC: ${balance:,.2f}",
+        f"📈 P&L: [bold {pnl_color}]${pnl:+.3f}[/] | W/L: [green]{w}[/green]/[red]{l}[/red]",
+    ]
 
     # Position
-    if pos.is_open:
+    if pos.is_open and pos.entry_price > 0:
         current_price = snap.yes_price if pos.entry_side == "YES" else snap.no_price
         unrealized = (current_price - pos.entry_price) * pos.size
-        pos_line = (
-            f"🔴 POSITION: {pos.entry_side} {pos.size} shares @ {pos.entry_price:.2f} | "
-            f"Now: {current_price:.2f} | "
-            f"Unrealized: [{'green' if unrealized >= 0 else 'red'}]${unrealized:+.3f}[/]"
-        )
+        u_color = "green" if unrealized >= 0 else "red"
+        lines += [
+            "",
+            f"[bold]🔴 OPEN POSITION[/bold]",
+            f"  {pos.entry_side} {pos.size:.0f} shares @ {pos.entry_price:.3f}",
+            f"  Now: {current_price:.3f} | P&L: [bold {u_color}]${unrealized:+.3f}[/]",
+        ]
     else:
-        pos_line = "⚪ No position"
+        lines += ["", "⚪ No position"]
 
-    # Mode
-    mode = "[yellow]DRY RUN[/yellow]" if bot_config.DRY_RUN else "[red]LIVE TRADING[/red]"
+    lines += [
+        "",
+        f"Mode: [yellow]DRY RUN[/yellow]" if bot_config.DRY_RUN else "Mode: [red]LIVE[/red]",
+    ]
 
-    content = "\n".join([btc_line, bal_line, pnl_line, pos_line, f"Mode: {mode}"])
-    return Panel(content, title="📊 Dashboard", border_style="cyan")
+    return Panel("\n".join(lines), title="📊 Dashboard", border_style="cyan")
 
 
-def build_consensus_panel(snap: MarketSnapshot) -> Optional[Panel]:
-    """Build consensus alert panel."""
-    if not snap.consensus_side:
-        return None
+def build_consensus_panel(snap: MarketSnapshot) -> Panel:
+    """Build consensus/exit panel — shows consensus when flat, exit conditions when in position."""
+    pos = trade_strategy.position
 
-    side = snap.consensus_side
-    color = "green" if side == "YES" else "red"
-    content = (
-        f"Side: [bold {color}]{side}[/bold {color}]\n"
-        f"Wallet Consensus: {snap.consensus_wallet_pct:.1f}%\n"
-        f"Volume Consensus: {snap.consensus_volume_pct:.1f}%\n"
-        f"Time Remaining: T-{snap.seconds_remaining}s\n"
-        f"Price: {snap.yes_price if side == 'YES' else snap.no_price:.2f}"
+    if pos.is_open and pos.entry_price > 0:
+        # Show exit conditions
+        current_price = snap.yes_price if pos.entry_side == "YES" else snap.no_price
+        tp_hit = current_price >= strategy_config.TP_PRICE
+        tp_color = "green" if tp_hit else "dim"
+        sl_color = "red" if snap.consensus_side and snap.consensus_side != pos.entry_side else "dim"
+        content = (
+            f"[bold]🔴 Position: {pos.entry_side}[/bold]\n"
+            f"Entry: {pos.entry_price:.3f}\n"
+            f"Current: {current_price:.3f}\n\n"
+            f"[{tp_color}]TP: {strategy_config.TP_PRICE*100:.0f}¢ {'✅' if tp_hit else ''}[/{tp_color}]\n"
+            f"[{sl_color}]SL: Dynamic (flip >75%)[/{sl_color}]\n\n"
+            f"T-{snap.seconds_remaining}s remaining"
+        )
+        return Panel(content, title="🎯 Exit Monitor", border_style="bold yellow")
+
+    if snap.consensus_side:
+        side = snap.consensus_side
+        color = "green" if side == "YES" else "red"
+        content = (
+            f"Side: [bold {color}]{side}[/bold {color}]\n"
+            f"Wallet: {snap.consensus_wallet_pct:.1f}%\n"
+            f"Volume: {snap.consensus_volume_pct:.1f}%\n"
+            f"T-{snap.seconds_remaining}s\n"
+            f"Price: {snap.yes_price if side == 'YES' else snap.no_price:.3f}"
+        )
+        return Panel(content, title="🎯 CONSENSUS!", border_style="bold green")
+
+    return Panel(
+        f"YES: {snap.total_wallets} wallets\n"
+        f"T-{snap.seconds_remaining}s remaining",
+        title="🎯 Awaiting Consensus",
+        border_style="dim white"
     )
-    return Panel(content, title="🎯 CONSENSUS REACHED!", border_style="bold green")
 
 
 def build_market_panel(snap: MarketSnapshot) -> Panel:
@@ -245,26 +272,22 @@ class Dashboard:
             Layout(name="bottom"),
         )
 
-        # Top: market info + status + consensus + strategy
+        # Top: market info + status + exit/consensus + strategy
         top = Layout()
         if self.last_snap:
             top.split_row(
                 Layout(build_market_panel(self.last_snap), ratio=2),
                 Layout(build_status_panel(self.last_snap), ratio=2),
-                Layout(
-                    build_consensus_panel(self.last_snap) or Panel("Waiting for consensus...", title="🎯 Consensus"),
-                    ratio=1,
-                ),
+                Layout(build_consensus_panel(self.last_snap), ratio=1),
                 Layout(build_strategy_panel(), ratio=1),
             )
         else:
-            top_split = Layout()
-            top_split.split_row(
+            top.split_row(
+                Layout(Panel("Loading...", title="📡 Market")),
                 Layout(Panel("Loading...", title="📊 Dashboard")),
                 Layout(Panel("Loading...", title="🎯 Consensus")),
                 Layout(build_strategy_panel()),
             )
-            top = top_split
 
         layout["top"].update(top)
 
@@ -284,23 +307,21 @@ class Dashboard:
         """Update dashboard with new snapshot and decision."""
         self.last_snap = snap
 
-        # Build log line
+        # Log line
         is_consensus = bool(snap.consensus_side)
         log_line = build_log_line(snap, decision, is_consensus)
         self.add_log(log_line)
 
-        # Handle trade events differently
-        if is_consensus:
-            self.add_log("🎯 CONSENSUS REACHED!")
-            side = snap.consensus_side
-            price = snap.yes_price if side == "YES" else snap.no_price
-            self.add_log(f"[PRICE] {snap.slug}: {side} @ {price:.2f}")
-
+        # Trade events
         if decision["action"] == "ENTER":
-            self.add_log(
-                f"[TRADE] BUY {decision['side']} "
-                f"{decision['size']:.2f} USDC @ {decision['price']:.2f}"
-            )
+            self.add_log(f"[TRADE] ▶ BUY {decision['side']} {decision['size']:.0f} shares @ {decision['price']:.3f}")
+        elif decision["action"] == "EXIT_TP":
+            self.add_log(f"[TRADE] 🏆 TAKE PROFIT — SELL {decision['size']:.0f} @ {decision['price']:.3f}")
+        elif decision["action"] == "EXIT_SL":
+            self.add_log(f"[TRADE] 🛑 STOP LOSS — SELL {decision['size']:.0f} @ {decision['price']:.3f}")
+        elif is_consensus and trade_strategy.position.state.value == "flat":
+            # Only show consensus log when we're flat (not in position)
+            self.add_log(f"🎯 CONSENSUS: {snap.consensus_side} (W:{snap.consensus_wallet_pct:.0f}% V:{snap.consensus_volume_pct:.0f}%)")
 
     def start(self):
         """Start the live dashboard."""

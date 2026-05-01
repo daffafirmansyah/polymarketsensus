@@ -57,6 +57,8 @@ class MarketSnapshot:
     # Raw
     best_bid: float = 0.0
     best_ask: float = 0.0
+    no_best_bid: float = 0.0
+    no_best_ask: float = 0.0
     last_trade: float = 0.0
     volume_24h: float = 0.0
     liquidity: float = 0.0
@@ -370,8 +372,6 @@ class PolymarketClient:
         except Exception:
             pass
 
-        snap.best_bid = float(market.get("bestBid", 0))
-        snap.best_ask = float(market.get("bestAsk", 0))
         snap.last_trade = float(market.get("lastTradePrice", 0))
         snap.volume_24h = float(market.get("volume24hr", 0))
         snap.liquidity = float(market.get("liquidity", 0))
@@ -403,7 +403,26 @@ class PolymarketClient:
             snap.total_wallets = holders_data.get("total_wallets", 0)
             snap.yes_volume = holders_data.get("yes_volume", 0)
             snap.no_volume = holders_data.get("no_volume", 0)
-        # If holders API fails entirely (empty), keep zeros — no proxy fallback
+
+        # 3. Get CLOB orderbook for real-time bid/ask (NOT stale Gamma midpoint)
+        yes_book = {}
+        no_book = {}
+        if snap.token_id_yes:
+            yes_book = self.get_orderbook(snap.token_id_yes)
+        if snap.token_id_no:
+            no_book = self.get_orderbook(snap.token_id_no)
+
+        # Best bid = highest bid price; Best ask = lowest ask price
+        yes_bids = yes_book.get("bids", [])
+        yes_asks = yes_book.get("asks", [])
+        no_bids = no_book.get("bids", [])
+        no_asks = no_book.get("asks", [])
+
+        snap.best_bid = float(yes_bids[-1]["price"]) if yes_bids else 0.0
+        snap.best_ask = float(yes_asks[0]["price"]) if yes_asks else 0.0
+        # Also store NO side bid/ask for display
+        snap.no_best_bid = float(no_bids[-1]["price"]) if no_bids else 0.0
+        snap.no_best_ask = float(no_asks[0]["price"]) if no_asks else 0.0
 
         # 3. Consensus calculation
         total_orders = snap.yes_orders + snap.no_orders

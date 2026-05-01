@@ -226,7 +226,7 @@ class Dashboard:
 
     def __init__(self):
         self.log_lines: list[str] = []
-        self.max_log_lines = 20
+        self.max_log_lines = 100
         self.live: Optional[Live] = None
         self.last_snap: Optional[MarketSnapshot] = None
 

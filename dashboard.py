@@ -171,6 +171,7 @@ class Dashboard:
         self.visible_log_lines = 30
         self.live: Optional[Live] = None
         self.last_snap: Optional[MarketSnapshot] = None
+        self.last_error: str = ""
 
     def add_log(self, line: str):
         self.log_lines.append(line)
@@ -211,6 +212,8 @@ class Dashboard:
         status_bar += f"  |  P&L: [{'green' if trade_strategy.total_pnl >= 0 else 'red'}]${trade_strategy.total_pnl:+.3f}[/]"
         status_bar += f"  |  W/L: {trade_strategy.total_wins}/{trade_strategy.total_losses}"
         status_bar += f"  |  {'[yellow]DRY[/yellow]' if bot_config.DRY_RUN else '[red]LIVE[/red]'}"
+        if self.last_error:
+            status_bar += f"  |  [bold red]⚠ {self.last_error}[/bold red]"
         layout["spacer"].update(Panel(Text(status_bar), border_style="dim"))
         return layout
 

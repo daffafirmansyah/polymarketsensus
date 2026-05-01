@@ -31,6 +31,10 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     datefmt="%H:%M:%S",
+    handlers=[
+        logging.FileHandler("bot_errors.log"),
+        logging.StreamHandler(),
+    ],
 )
 logger = logging.getLogger("polybot.bot")
 
@@ -194,13 +198,25 @@ def run_loop():
     # Consecutive loss tracking
     consecutive_losses = 0
 
+    # Check credentialsa
     if not bot_config.DRY_RUN:
         if not bot_config.PRIVATE_KEY:
+            dashboard.last_error = "PRIVATE_KEY not set!"
             console.print("[red]❌ PRIVATE_KEY not set! Switching to DRY RUN.[/red]")
             bot_config.DRY_RUN = True
         else:
             console.print("[yellow]⚠️  LIVE TRADING MODE — real orders will be placed![/yellow]")
             console.print()
+            # Test CLOB connection
+            try:
+                from polymarket_api import client as api
+                test = api._get_clob_client()
+                if test is None:
+                    dashboard.last_error = "CLOB auth failed — check PRIVATE_KEY/FUNDER"
+                else:
+                    console.print("[green]✅ CLOB authenticated[/green]")
+            except Exception as e:
+                dashboard.last_error = f"CLOB error: {str(e)[:50]}"
 
     # Reset P&L stats every startup (no carry-over from previous sessions)
     trade_strategy.reset_stats()

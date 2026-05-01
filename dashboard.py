@@ -199,6 +199,19 @@ class Dashboard:
         visible = self.log_lines[-16:] if len(self.log_lines) > 16 else self.log_lines
         log_text = "\n".join(visible) if visible else "Waiting..."
         layout["log"].update(Panel(Text(log_text, style="dim"), title="📜 Trade Log", border_style="blue"))
+
+        # Spacer = mini status bar
+        snap = self.last_snap
+        status_bar = f"₿ ${snap.btc_price:,.0f}" if snap and snap.btc_price > 0 else ""
+        pos = trade_strategy.position
+        if pos.is_open and snap:
+            cp = snap.yes_price if pos.entry_side == "YES" else snap.no_price
+            u = (cp - pos.entry_price) * pos.size
+            status_bar += f"  |  🔴 {pos.entry_side} {pos.size:.0f}sh @ {pos.entry_price:.3f} → {cp:.3f} [{'green' if u >= 0 else 'red'}]${u:+.3f}[/]"
+        status_bar += f"  |  P&L: [{'green' if trade_strategy.total_pnl >= 0 else 'red'}]${trade_strategy.total_pnl:+.3f}[/]"
+        status_bar += f"  |  W/L: {trade_strategy.total_wins}/{trade_strategy.total_losses}"
+        status_bar += f"  |  {'[yellow]DRY[/yellow]' if bot_config.DRY_RUN else '[red]LIVE[/red]'}"
+        layout["spacer"].update(Panel(Text(status_bar), border_style="dim"))
         return layout
 
     def update(self, snap: MarketSnapshot, decision: dict):

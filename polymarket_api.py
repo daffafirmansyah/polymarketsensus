@@ -367,15 +367,7 @@ class PolymarketClient:
         except Exception:
             pass
 
-        # Prices
-        prices_str = market.get("outcomePrices", "[]")
-        try:
-            prices = json.loads(prices_str) if isinstance(prices_str, str) else prices_str
-            snap.yes_price = float(prices[0]) if len(prices) > 0 else 0.0
-            snap.no_price = float(prices[1]) if len(prices) > 1 else 0.0
-        except Exception:
-            pass
-
+        # Prices (set later from CLOB last_trade, not Gamma midpoint)
         snap.last_trade = float(market.get("lastTradePrice", 0))
         snap.volume_24h = float(market.get("volume24hr", 0))
         snap.liquidity = float(market.get("liquidity", 0))
@@ -416,16 +408,39 @@ class PolymarketClient:
         if snap.token_id_no:
             no_book = self.get_orderbook(snap.token_id_no)
 
-        # Best bid = highest bid price (last in ascending); Best ask = lowest ask (last in descending)
+        # Extract bid/ask arrays
         yes_bids = yes_book.get("bids", [])
         yes_asks = yes_book.get("asks", [])
         no_bids = no_book.get("bids", [])
         no_asks = no_book.get("asks", [])
 
+        # Best bid = highest bid price (last in ascending); Best ask = lowest ask (last in descending)
         snap.best_bid = float(yes_bids[-1]["price"]) if yes_bids else 0.0
-        snap.best_ask = float(yes_asks[-1]["price"]) if yes_asks else 0.0  # asks sorted DESC
+        snap.best_ask = float(yes_asks[-1]["price"]) if yes_asks else 0.0
         snap.no_best_bid = float(no_bids[-1]["price"]) if no_bids else 0.0
-        snap.no_best_ask = float(no_asks[-1]["price"]) if no_asks else 0.0  # asks sorted DESC
+        snap.no_best_ask = float(no_asks[-1]["price"]) if no_asks else 0.0
+
+        # YES/NO prices from CLOB last_trade (real-time)
+        # Binary market: NO ≈ 1.0 - YES. Use YES last_trade as primary.
+        yes_last = float(yes_book.get("last_trade_price", 0) or 0)
+        no_last = float(no_book.get("last_trade_price", 0) or 0)
+
+        if yes_last > 0:
+            snap.yes_price = yes_last
+            snap.no_price = max(0, round(1.0 - yes_last, 4))
+        elif no_last > 0:
+            snap.no_price = no_last
+            snap.yes_price = max(0, round(1.0 - no_last, 4))
+        else:
+            # Fallback to Gamma midpoint
+            prices_str = market.get("outcomePrices", "[]")
+            try:
+                import json
+                prices = json.loads(prices_str) if isinstance(prices_str, str) else prices_str
+                snap.yes_price = float(prices[0]) if len(prices) > 0 else 0.0
+                snap.no_price = float(prices[1]) if len(prices) > 1 else 0.0
+            except Exception:
+                pass
 
         # Orderbook volume = sum of all bid sizes (real-time CLOB)
         snap.yes_ob_vol = sum(float(e.get("size", 0)) for e in yes_bids)

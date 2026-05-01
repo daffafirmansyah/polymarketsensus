@@ -155,42 +155,65 @@ class PolymarketClient:
         """
         Fetch REAL wallet holders from Polymarket Data API.
         Returns individual wallet addresses with positions.
-        outcomeIndex: 0=YES, 1=NO
+        Retries up to 3x on failure, caches last successful result.
         """
-        try:
-            r = requests.get(
-                f"{DATA_API}/holders",
-                params={"market": condition_id, "limit": limit},
-                timeout=10,
-            )
-            r.raise_for_status()
-            holders = r.json()
-            # Response is a list: [{token, holders: [{proxyWallet, amount, outcomeIndex}]}]
-            yes_wallets = set()
-            no_wallets = set()
-            yes_volume = 0.0
-            no_volume = 0.0
-            for token_group in holders:
-                for h in token_group.get("holders", []):
-                    addr = h.get("proxyWallet", "")
-                    amt = float(h.get("amount", 0))
-                    idx = h.get("outcomeIndex", -1)
-                    if idx == 0:  # YES
-                        yes_wallets.add(addr)
-                        yes_volume += amt
-                    elif idx == 1:  # NO
-                        no_wallets.add(addr)
-                        no_volume += amt
-            return {
-                "yes_wallets": len(yes_wallets),
-                "no_wallets": len(no_wallets),
-                "total_wallets": len(yes_wallets) + len(no_wallets),
-                "yes_volume": yes_volume,
-                "no_volume": no_volume,
-            }
-        except Exception as e:
-            logger.error(f"Holders fetch failed: {e}")
-            return {}
+        # Return cached data for same condition_id if fresh (< 1s)
+        cache_key = f"holders:{condition_id}"
+        if cache_key in self._market_cache:
+            cached, ts = self._market_cache[cache_key]
+            if time.time() - ts < 1:
+                return cached
+
+        for attempt in range(3):
+            try:
+                r = requests.get(
+                    f"{DATA_API}/holders",
+                    params={"market": condition_id, "limit": limit},
+                    timeout=10,
+                )
+                r.raise_for_status()
+                holders = r.json()
+
+                yes_wallets = set()
+                no_wallets = set()
+                yes_volume = 0.0
+                no_volume = 0.0
+
+                for token_group in holders:
+                    for h in token_group.get("holders", []):
+                        addr = h.get("proxyWallet", "")
+                        amt = float(h.get("amount", 0))
+                        idx = h.get("outcomeIndex", -1)
+                        if idx == 0:
+                            yes_wallets.add(addr)
+                            yes_volume += amt
+                        elif idx == 1:
+                            no_wallets.add(addr)
+                            no_volume += amt
+
+                result = {
+                    "yes_wallets": len(yes_wallets),
+                    "no_wallets": len(no_wallets),
+                    "total_wallets": len(yes_wallets) + len(no_wallets),
+                    "yes_volume": yes_volume,
+                    "no_volume": no_volume,
+                }
+
+                # Cache for 1 second to avoid hammering API during retries
+                self._market_cache[cache_key] = (result, time.time())
+                return result
+
+            except Exception as e:
+                logger.warning(f"Holders fetch attempt {attempt+1}/3 failed: {e}")
+                if attempt < 2:
+                    time.sleep(0.5)
+
+        # All retries failed — return last cached or empty
+        logger.error("Holders fetch failed after 3 retries")
+        if cache_key in self._market_cache:
+            cached, _ = self._market_cache[cache_key]
+            return cached
+        return {}
 
     def get_btc_price(self) -> float:
         """Fetch live BTC price from Binance (free, no key needed)."""
@@ -371,10 +394,8 @@ class PolymarketClient:
             pass
         snap.seconds_remaining = max(0, snap.market_end_ts - int(time.time()))
 
-        # 2. Get REAL wallet data from Data API (holders) — individual wallet addresses!
-        holders_data = {}
-        if snap.condition_id:
-            holders_data = self.get_holders(snap.condition_id)
+        # 2. Get REAL wallet data from Data API (holders) — ONLY source, no fallback
+        holders_data = self.get_holders(snap.condition_id) if snap.condition_id else {}
 
         if holders_data:
             snap.yes_orders = holders_data.get("yes_wallets", 0)
@@ -382,19 +403,7 @@ class PolymarketClient:
             snap.total_wallets = holders_data.get("total_wallets", 0)
             snap.yes_volume = holders_data.get("yes_volume", 0)
             snap.no_volume = holders_data.get("no_volume", 0)
-        else:
-            # Fallback: orderbook bids
-            yes_book = {}
-            no_book = {}
-            if snap.token_id_yes:
-                yes_book = self.get_orderbook(snap.token_id_yes)
-            if snap.token_id_no:
-                no_book = self.get_orderbook(snap.token_id_no)
-            snap.yes_orders = len(yes_book.get("bids", []))
-            snap.no_orders = len(no_book.get("bids", []))
-            snap.yes_volume = sum(float(e.get("size", 0)) for e in yes_book.get("bids", []))
-            snap.no_volume = sum(float(e.get("size", 0)) for e in no_book.get("bids", []))
-            snap.total_wallets = int((snap.yes_volume + snap.no_volume) / 300)
+        # If holders API fails entirely (empty), keep zeros — no proxy fallback
 
         # 3. Consensus calculation
         total_orders = snap.yes_orders + snap.no_orders

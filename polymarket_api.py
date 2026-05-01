@@ -46,6 +46,9 @@ class MarketSnapshot:
     market_start_ts: int = 0
     market_end_ts: int = 0
     seconds_remaining: int = 0
+    last_fetched: float = field(default_factory=time.time)
+    # Live indicator
+    is_live: bool = False  # True when data was just fetched
     # BTC price
     btc_price: float = 0.0
     # Raw
@@ -377,7 +380,7 @@ class PolymarketClient:
         # 4. BTC price
         snap.btc_price = self.get_btc_price()
         snap.timestamp = time.time()
-
+        snap.last_fetched = time.time()  # for display
         return snap
 
 

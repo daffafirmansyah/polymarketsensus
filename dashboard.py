@@ -134,8 +134,8 @@ def build_market_panel(snap: MarketSnapshot) -> Panel:
     """Build live market info panel."""
     from datetime import datetime, timezone
 
-    start_str = datetime.fromtimestamp(snap.market_start_ts).strftime("%H:%M") if snap.market_start_ts else "?"
-    end_str = datetime.fromtimestamp(snap.market_end_ts).strftime("%H:%M") if snap.market_end_ts else "?"
+    start_str = datetime.fromtimestamp(snap.market_start_ts).strftime("%H:%M:%S") if snap.market_start_ts else "?"
+    end_str = datetime.fromtimestamp(snap.market_end_ts).strftime("%H:%M:%S") if snap.market_end_ts else "?"
 
     remaining = snap.seconds_remaining
     if remaining > 60:
@@ -144,20 +144,45 @@ def build_market_panel(snap: MarketSnapshot) -> Panel:
         countdown = f"T-{remaining}s"
 
     # Color code countdown
-    if remaining <= 30:
+    if remaining <= 10:
+        countdown_color = "bold red"
+        blink = "🔴 "
+    elif remaining <= 30:
         countdown_color = "red"
+        blink = "🟡 "
     elif remaining <= 60:
         countdown_color = "yellow"
+        blink = "🟢 "
     else:
         countdown_color = "green"
+        blink = "🟢 "
 
     # YES/NO inline
     yes_color = "green" if snap.yes_price > snap.no_price else "white"
     no_color = "red" if snap.no_price > snap.yes_price else "white"
 
+    # Timestamp dari slug
+    import re
+    slug_ts = ""
+    m = re.search(r'btc-updown-5m-(\d+)', snap.slug)
+    if m:
+        slug_ts = datetime.fromtimestamp(int(m.group(1))).strftime("%H:%M:%S")
+
+    # Last fetched
+    age = time.time() - snap.last_fetched
+    if age < 2:
+        live_dot = "🟢"
+    elif age < 5:
+        live_dot = "🟡"
+    else:
+        live_dot = "🔴"
+    fetched_str = datetime.fromtimestamp(snap.last_fetched).strftime("%H:%M:%S")
+
     content = (
         f"🕐 {start_str} → {end_str} UTC\n"
-        f"⏳ [{countdown_color}]{countdown}[/{countdown_color}]\n\n"
+        f"{'📛' if remaining <= 10 else '⏳'} [{countdown_color}]{countdown}[/{countdown_color}]\n"
+        f"{blink}Market: {slug_ts}\n"
+        f"{live_dot} Updated: {fetched_str}\n\n"
         f"[bold {yes_color}]YES: {snap.yes_price:.3f}[/bold {yes_color}]  "
         f"[bold {no_color}]NO: {snap.no_price:.3f}[/bold {no_color}]\n"
         f"Bid: {snap.best_bid:.2f}  Ask: {snap.best_ask:.2f}\n\n"

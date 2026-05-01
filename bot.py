@@ -194,6 +194,7 @@ def run_loop():
                     continue
 
                 snap = new_snap
+                snap.last_fetched = time.time()
 
                 # Strategy evaluation + execution (only on fresh data)
                 decision = trade_strategy.evaluate(snap)

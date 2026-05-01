@@ -227,6 +227,7 @@ class Dashboard:
     def __init__(self):
         self.log_lines: list[str] = []
         self.max_log_lines = 100
+        self.visible_log_lines = 30  # show last N lines visible without scroll
         self.live: Optional[Live] = None
         self.last_snap: Optional[MarketSnapshot] = None
 
@@ -267,8 +268,9 @@ class Dashboard:
 
         layout["top"].update(top)
 
-        # Bottom: log
-        log_text = "\n".join(self.log_lines) if self.log_lines else "Waiting for first scan..."
+        # Bottom: log — show only last N visible lines for auto-scroll effect
+        visible = self.log_lines[-self.visible_log_lines:] if len(self.log_lines) > self.visible_log_lines else self.log_lines
+        log_text = "\n".join(visible) if visible else "Waiting for first scan..."
         log_panel = Panel(
             Text(log_text, style="dim"),
             title="📜 Trade Log",

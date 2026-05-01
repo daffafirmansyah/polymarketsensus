@@ -59,6 +59,16 @@ class Strategy:
         self._exit_retries = 0
         self._max_exit_retries = 3
 
+    def reset_stats(self):
+        """Reset P&L counters (called on bot startup)."""
+        self.total_trades = 0
+        self.total_wins = 0
+        self.total_losses = 0
+        self.total_pnl = 0.0
+        self.position.close()
+        self._exit_retries = 0
+        self._last_exit_attempt = 0
+
     @property
     def win_rate(self) -> float:
         if self.total_trades == 0:
@@ -175,24 +185,25 @@ class Strategy:
         logger.info(f"📊 Position opened: {result.side} {result.filled} @ {result.price:.2f}")
 
     def record_exit(self, snap: MarketSnapshot, result: TradeResult):
-        """Record position exit and calculate P&L."""
+        """Record position exit — only count real trades in P&L."""
         if not self.position.is_open:
             return
 
-        # P&L: for YES: sell_price - buy_price; for NO: same logic
-        pnl = (result.price - self.position.entry_price) * self.position.size
-        self.total_pnl += pnl
-
-        if pnl > 0:
-            self.total_wins += 1
+        if not result.dry_run:
+            # Only count REAL trades
+            pnl = (result.price - self.position.entry_price) * self.position.size
+            self.total_pnl += pnl
+            if pnl > 0:
+                self.total_wins += 1
+            else:
+                self.total_losses += 1
+            logger.info(
+                f"📊 Position closed: P&L ${pnl:.3f} | "
+                f"Total P&L: ${self.total_pnl:.3f} | "
+                f"W/L: {self.total_wins}/{self.total_losses}"
+            )
         else:
-            self.total_losses += 1
-
-        logger.info(
-            f"📊 Position closed: P&L ${pnl:.3f} | "
-            f"Total P&L: ${self.total_pnl:.3f} | "
-            f"W/L: {self.total_wins}/{self.total_losses}"
-        )
+            logger.info(f"📊 [DRY RUN] Position closed (simulated)")
         self.position.close()
 
     # ── Snapshot Check (per heartbeat) ─────

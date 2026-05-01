@@ -180,6 +180,9 @@ def run_loop():
             console.print("[yellow]⚠️  LIVE TRADING MODE — real orders will be placed![/yellow]")
             console.print()
 
+    # Reset P&L stats every startup (no carry-over from previous sessions)
+    trade_strategy.reset_stats()
+
     # Start BTC WebSocket for real-time price
     btc_ws.start()
 

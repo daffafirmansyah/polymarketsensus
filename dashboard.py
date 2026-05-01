@@ -211,8 +211,8 @@ def build_strategy_panel() -> Panel:
     lines = [
         f"MIN_WALLETS: {cfg.MIN_WALLETS}",
         f"MIN_CONSENSUS: {cfg.MIN_CONSENSUS}%",
-        f"TP: {cfg.TP_PRICE:.0f}¢",
-        f"MAX_ENTRY: {cfg.MAX_ENTRY:.0f}¢",
+        f"TP: {cfg.TP_PRICE*100:.0f}¢",
+        f"MAX_ENTRY: {cfg.MAX_ENTRY*100:.0f}¢",
         f"Entry Window: T-{cfg.ENTRY_WINDOW_START}s to T-{cfg.ENTRY_WINDOW_END}s",
         f"Max Trade: {cfg.MAX_TRADE} shares",
         f"Min Trade: {cfg.MIN_TRADE} shares",

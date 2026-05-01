@@ -335,30 +335,29 @@ class PolymarketClient:
         if snap.token_id_no:
             no_book = self.get_orderbook(snap.token_id_no)
 
-        # Parse orderbook — count only BIDS with SIGNIFICANT volume.
-        # Raw bid-level count is always ~99 (99 price levels, MMs at all levels).
-        # Filter: only count levels where volume > 0.5% of total bid volume.
-        # This gives a dynamic "active wallet" proxy.
-        def _parse_bids(book: dict, volume_threshold: float = 0) -> tuple:
-            """Return (significant_levels, total_volume) from orderbook."""
+        # Parse orderbook — count ALL bids + compute volume.
+        # Public CLOB doesn't expose individual wallets.
+        # Wallets proxy: total_bid_volume / 1000 with moving average for smoothness.
+        def _parse_bids(book: dict) -> tuple:
+            """Return (order_count, total_volume) from orderbook bids."""
             orders = 0
             volume = 0.0
             for entry in book.get("bids", []):
-                sz = float(entry.get("size", 0))
-                volume += sz
-                if sz > volume_threshold:
-                    orders += 1
+                orders += 1
+                volume += float(entry.get("size", 0))
             return orders, volume
 
-        # Calculate dynamic threshold: 0.5% of combined bid volume
-        all_yes_vol = sum(float(e.get("size", 0)) for e in yes_book.get("bids", []))
-        all_no_vol = sum(float(e.get("size", 0)) for e in no_book.get("bids", []))
-        threshold = (all_yes_vol + all_no_vol) * 0.005
-        threshold = max(threshold, 5.0)  # minimum 5 (order min size)
+        snap.yes_orders, snap.yes_volume = _parse_bids(yes_book)
+        snap.no_orders, snap.no_volume = _parse_bids(no_book)
 
-        snap.yes_orders, snap.yes_volume = _parse_bids(yes_book, threshold)
-        snap.no_orders, snap.no_volume = _parse_bids(no_book, threshold)
-        snap.total_wallets = snap.yes_orders + snap.no_orders
+        # Wallets = smooth volume-based proxy
+        total_bid_vol = snap.yes_volume + snap.no_volume
+        raw_wallets = int(total_bid_vol / 1000)
+        if not hasattr(self, '_wallet_history'):
+            self._wallet_history = [raw_wallets] * 5
+        self._wallet_history.append(raw_wallets)
+        self._wallet_history = self._wallet_history[-5:]
+        snap.total_wallets = int(sum(self._wallet_history) / len(self._wallet_history))
 
         # 3. Consensus calculation
         total_orders = snap.yes_orders + snap.no_orders

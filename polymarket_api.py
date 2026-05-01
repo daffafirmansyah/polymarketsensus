@@ -412,17 +412,16 @@ class PolymarketClient:
         if snap.token_id_no:
             no_book = self.get_orderbook(snap.token_id_no)
 
-        # Best bid = highest bid price; Best ask = lowest ask price
+        # Best bid = highest bid price (last in ascending); Best ask = lowest ask (last in descending)
         yes_bids = yes_book.get("bids", [])
         yes_asks = yes_book.get("asks", [])
         no_bids = no_book.get("bids", [])
         no_asks = no_book.get("asks", [])
 
         snap.best_bid = float(yes_bids[-1]["price"]) if yes_bids else 0.0
-        snap.best_ask = float(yes_asks[0]["price"]) if yes_asks else 0.0
-        # Also store NO side bid/ask for display
+        snap.best_ask = float(yes_asks[-1]["price"]) if yes_asks else 0.0  # asks sorted DESC
         snap.no_best_bid = float(no_bids[-1]["price"]) if no_bids else 0.0
-        snap.no_best_ask = float(no_asks[0]["price"]) if no_asks else 0.0
+        snap.no_best_ask = float(no_asks[-1]["price"]) if no_asks else 0.0  # asks sorted DESC
 
         # 3. Consensus calculation
         total_orders = snap.yes_orders + snap.no_orders

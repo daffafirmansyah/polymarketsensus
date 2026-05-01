@@ -177,6 +177,10 @@ class PolymarketClient:
                 r = requests.get(
                     f"{DATA_API}/holders",
                     params={"market": condition_id, "limit": limit},
+                    headers={
+                        "Cache-Control": "no-cache, no-store, must-revalidate",
+                        "Pragma": "no-cache",
+                    },
                     timeout=10,
                 )
                 r.raise_for_status()

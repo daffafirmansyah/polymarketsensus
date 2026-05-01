@@ -54,7 +54,7 @@ def build_log_line(snap: MarketSnapshot, decision: dict, is_consensus: bool) -> 
 
     line = (
         f"[{now}] [{slug_time}] T-{remaining}s | "
-        f"Wallets: {snap.total_wallets} | "
+        f"OB: {snap.yes_ob_orders + snap.no_ob_orders} | Holders: {snap.total_wallets} | "
         f"YES: {snap.yes_ob_orders} ({yes_w_pct:.0f}%) "
         f"Vol: ${snap.yes_ob_vol:,.0f} ({yes_v_pct:.0f}% / W:{yes_w_pct:.0f}%) "
         f"@ {snap.yes_price:.3f} | "

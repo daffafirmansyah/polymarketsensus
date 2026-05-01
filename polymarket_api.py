@@ -59,6 +59,10 @@ class MarketSnapshot:
     best_ask: float = 0.0
     no_best_bid: float = 0.0
     no_best_ask: float = 0.0
+    # Orderbook volume (CLOB real-time)
+    yes_ob_vol: float = 0.0
+    no_ob_vol: float = 0.0
+    total_ob_vol: float = 0.0
     last_trade: float = 0.0
     volume_24h: float = 0.0
     liquidity: float = 0.0
@@ -423,15 +427,20 @@ class PolymarketClient:
         snap.no_best_bid = float(no_bids[-1]["price"]) if no_bids else 0.0
         snap.no_best_ask = float(no_asks[-1]["price"]) if no_asks else 0.0  # asks sorted DESC
 
-        # 3. Consensus calculation
-        total_orders = snap.yes_orders + snap.no_orders
-        total_volume = snap.yes_volume + snap.no_volume
+        # Orderbook volume = sum of all bid sizes (real-time CLOB)
+        snap.yes_ob_vol = sum(float(e.get("size", 0)) for e in yes_bids)
+        snap.no_ob_vol = sum(float(e.get("size", 0)) for e in no_bids)
+        snap.total_ob_vol = snap.yes_ob_vol + snap.no_ob_vol
 
-        if total_orders > 0 and total_volume > 0:
+        # 3. Consensus calculation — uses wallet% from holders + volume% from CLOB orderbook
+        total_orders = snap.yes_orders + snap.no_orders
+        total_ob_vol = snap.yes_ob_vol + snap.no_ob_vol
+
+        if total_orders > 0 and total_ob_vol > 0:
             yes_w_pct = (snap.yes_orders / total_orders) * 100
             no_w_pct = (snap.no_orders / total_orders) * 100
-            yes_v_pct = (snap.yes_volume / total_volume) * 100
-            no_v_pct = (snap.no_volume / total_volume) * 100
+            yes_v_pct = (snap.yes_ob_vol / total_ob_vol) * 100
+            no_v_pct = (snap.no_ob_vol / total_ob_vol) * 100
 
             min_cons = strategy_config.MIN_CONSENSUS
             if yes_w_pct >= min_cons and yes_v_pct >= min_cons:

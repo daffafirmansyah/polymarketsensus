@@ -48,12 +48,11 @@ def build_log_line(snap: MarketSnapshot, decision: dict, is_consensus: bool) -> 
     remaining = snap.seconds_remaining
 
     total_orders = snap.yes_orders + snap.no_orders
-    total_vol = snap.yes_volume + snap.no_volume
 
     yes_w_pct = (snap.yes_orders / total_orders * 100) if total_orders > 0 else 0
     no_w_pct = (snap.no_orders / total_orders * 100) if total_orders > 0 else 0
-    yes_v_pct = (snap.yes_volume / total_vol * 100) if total_vol > 0 else 0
-    no_v_pct = (snap.no_volume / total_vol * 100) if total_vol > 0 else 0
+    yes_v_pct = (snap.yes_ob_vol / snap.total_ob_vol * 100) if snap.total_ob_vol > 0 else 0
+    no_v_pct = (snap.no_ob_vol / snap.total_ob_vol * 100) if snap.total_ob_vol > 0 else 0
 
     # Extract market timestamp from slug
     import re
@@ -70,10 +69,10 @@ def build_log_line(snap: MarketSnapshot, decision: dict, is_consensus: bool) -> 
         f"[{now}] [{slug_time}] T-{remaining}s | "
         f"Wallets: {snap.total_wallets} | "
         f"YES: {snap.yes_orders} ({yes_w_pct:.0f}%) "
-        f"Vol: ${snap.yes_volume:.0f} ({yes_v_pct:.0f}% / W:{yes_w_pct:.0f}%) "
+        f"Vol: ${snap.yes_ob_vol:.0f} ({yes_v_pct:.0f}% / W:{yes_w_pct:.0f}%) "
         f"@ {snap.yes_price:.2f} | "
         f"NO: {snap.no_orders} ({no_w_pct:.0f}%) "
-        f"Vol: ${snap.no_volume:.0f} ({no_v_pct:.0f}% / W:{no_w_pct:.0f}%) "
+        f"Vol: ${snap.no_ob_vol:.0f} ({no_v_pct:.0f}% / W:{no_w_pct:.0f}%) "
         f"@ {snap.no_price:.2f} | "
         f"{status}"
     )
@@ -226,6 +225,7 @@ def build_market_panel(snap: MarketSnapshot) -> Panel:
         f"Bid: {snap.best_bid:.2f}  Ask: {snap.best_ask:.2f}  "
         f"(NO Bid: {snap.no_best_bid:.2f}  Ask: {snap.no_best_ask:.2f})\n\n"
         f"Vol 24h: ${snap.volume_24h:,.0f}\n"
+        f"Orderbook: ${snap.total_ob_vol:,.0f} (YES:${snap.yes_ob_vol:.0f} / NO:${snap.no_ob_vol:.0f})\n"
         f"Liquidity: ${snap.liquidity:,.0f}\n"
         f"Wallets: {snap.total_wallets}"
     )

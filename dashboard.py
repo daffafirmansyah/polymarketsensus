@@ -55,12 +55,19 @@ def build_log_line(snap: MarketSnapshot, decision: dict, is_consensus: bool) -> 
     yes_v_pct = (snap.yes_volume / total_vol * 100) if total_vol > 0 else 0
     no_v_pct = (snap.no_volume / total_vol * 100) if total_vol > 0 else 0
 
+    # Extract market timestamp from slug
+    import re
+    slug_time = ""
+    m = re.search(r'btc-updown-5m-(\d+)', snap.slug)
+    if m:
+        slug_time = datetime.fromtimestamp(int(m.group(1))).strftime("%H:%M")
+
     status = "No consensus"
     if is_consensus:
         status = f"🎯 CONSENSUS: {snap.consensus_side} "
 
     line = (
-        f"[{now}] [HEARTBEAT] T-{remaining}s | "
+        f"[{now}] [{slug_time}] T-{remaining}s | "
         f"Wallets: {snap.total_wallets} | "
         f"YES: {snap.yes_orders} ({yes_w_pct:.0f}%) "
         f"Vol: ${snap.yes_volume:.0f} ({yes_v_pct:.0f}% / W:{yes_w_pct:.0f}%) "
@@ -161,12 +168,15 @@ def build_market_panel(snap: MarketSnapshot) -> Panel:
     yes_color = "green" if snap.yes_price > snap.no_price else "white"
     no_color = "red" if snap.no_price > snap.yes_price else "white"
 
-    # Timestamp dari slug
+    # Timestamp dari slug — parse & tampilkan
     import re
     slug_ts = ""
+    slug_dt = ""
     m = re.search(r'btc-updown-5m-(\d+)', snap.slug)
     if m:
-        slug_ts = datetime.fromtimestamp(int(m.group(1))).strftime("%H:%M:%S")
+        ts = int(m.group(1))
+        slug_ts = datetime.fromtimestamp(ts).strftime("%H:%M:%S")
+        slug_dt = datetime.fromtimestamp(ts).strftime("%b %d, %H:%M")
 
     # Last fetched
     age = time.time() - snap.last_fetched
@@ -181,7 +191,7 @@ def build_market_panel(snap: MarketSnapshot) -> Panel:
     content = (
         f"🕐 {start_str} → {end_str} UTC\n"
         f"{'📛' if remaining <= 10 else '⏳'} [{countdown_color}]{countdown}[/{countdown_color}]\n"
-        f"{blink}Market: {slug_ts}\n"
+        f"{blink}Market: {slug_dt} ({slug_ts})\n"
         f"{live_dot} Updated: {fetched_str}\n\n"
         f"[bold {yes_color}]YES: {snap.yes_price:.3f}[/bold {yes_color}]  "
         f"[bold {no_color}]NO: {snap.no_price:.3f}[/bold {no_color}]\n"

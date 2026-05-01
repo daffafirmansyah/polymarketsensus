@@ -38,14 +38,14 @@ def build_log_line(snap: MarketSnapshot, decision: dict, is_consensus: bool) -> 
     if m:
         slug_time = datetime.fromtimestamp(int(m.group(1))).strftime("%H:%M")
 
-    # Use HOLDERS wallet counts for smooth natural progression (like friend's bot)
-    total_orders = snap.yes_orders + snap.no_orders
-    total_vol_holders = snap.yes_volume + snap.no_volume
+    # ALL data from CLOB orderbook — truly real-time (no CDN)
+    total_ob = snap.yes_ob_orders + snap.no_ob_orders
+    total_vol = snap.total_ob_vol
 
-    yes_w_pct = (snap.yes_orders / total_orders * 100) if total_orders > 0 else 0
-    no_w_pct = (snap.no_orders / total_orders * 100) if total_orders > 0 else 0
-    yes_v_pct = (snap.yes_volume / total_vol_holders * 100) if total_vol_holders > 0 else 0
-    no_v_pct = (snap.no_volume / total_vol_holders * 100) if total_vol_holders > 0 else 0
+    yes_w_pct = (snap.yes_ob_orders / total_ob * 100) if total_ob > 0 else 0
+    no_w_pct = (snap.no_ob_orders / total_ob * 100) if total_ob > 0 else 0
+    yes_v_pct = (snap.yes_ob_vol / total_vol * 100) if total_vol > 0 else 0
+    no_v_pct = (snap.no_ob_vol / total_vol * 100) if total_vol > 0 else 0
 
     status = "No consensus"
     if is_consensus:
@@ -53,13 +53,13 @@ def build_log_line(snap: MarketSnapshot, decision: dict, is_consensus: bool) -> 
 
     line = (
         f"[{now}] [{slug_time}] T-{remaining}s | "
-        f"Wallets: {snap.total_wallets} | "
-        f"YES: {snap.yes_orders} ({yes_w_pct:.1f}%) "
-        f"Vol: ${snap.yes_volume:,.0f} ({yes_v_pct:.0f}%) "
-        f"@ {snap.yes_price:.2f} | "
-        f"NO: {snap.no_orders} ({no_w_pct:.1f}%) "
-        f"Vol: ${snap.no_volume:,.0f} ({no_v_pct:.0f}%) "
-        f"@ {snap.no_price:.2f} | "
+        f"OB: {total_ob} | Holders: {snap.total_wallets} | "
+        f"YES: {snap.yes_ob_orders} ({yes_w_pct:.0f}%) "
+        f"Vol: ${snap.yes_ob_vol:,.0f} ({yes_v_pct:.0f}%) "
+        f"@ {snap.yes_price:.3f} | "
+        f"NO: {snap.no_ob_orders} ({no_w_pct:.0f}%) "
+        f"Vol: ${snap.no_ob_vol:,.0f} ({no_v_pct:.0f}%) "
+        f"@ {snap.no_price:.3f} | "
         f"{status}"
     )
     return line

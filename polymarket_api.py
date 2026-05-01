@@ -493,13 +493,13 @@ class PolymarketClient:
         snap.no_ob_vol = sum(float(e.get("size", 0)) for e in no_bids)
         snap.total_ob_vol = snap.yes_ob_vol + snap.no_ob_vol
 
-        # 3. Consensus calculation — uses wallet% from holders + volume% from CLOB orderbook
-        total_orders = snap.yes_orders + snap.no_orders
-        total_ob_vol = snap.yes_ob_vol + snap.no_ob_vol
+        # 3. Consensus — uses CLOB real-time orders + volume (strategy still uses holders for MIN_WALLETS)
+        total_ob_orders = snap.yes_ob_orders + snap.no_ob_orders
+        total_ob_vol = snap.total_ob_vol
 
-        if total_orders > 0 and total_ob_vol > 0:
-            yes_w_pct = (snap.yes_orders / total_orders) * 100
-            no_w_pct = (snap.no_orders / total_orders) * 100
+        if total_ob_orders > 0 and total_ob_vol > 0:
+            yes_w_pct = (snap.yes_ob_orders / total_ob_orders) * 100
+            no_w_pct = (snap.no_ob_orders / total_ob_orders) * 100
             yes_v_pct = (snap.yes_ob_vol / total_ob_vol) * 100
             no_v_pct = (snap.no_ob_vol / total_ob_vol) * 100
 

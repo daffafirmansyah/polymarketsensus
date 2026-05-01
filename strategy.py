@@ -55,6 +55,9 @@ class Strategy:
         self.total_wins = 0
         self.total_losses = 0
         self.total_pnl = 0.0
+        self._last_exit_attempt = 0.0
+        self._exit_retries = 0
+        self._max_exit_retries = 3
 
     @property
     def win_rate(self) -> float:
@@ -109,6 +112,21 @@ class Strategy:
 
     # ── Exit / Take Profit ────────────────
 
+    def can_attempt_exit(self) -> bool:
+        """Prevent repeated exit attempts — cooldown 3s, max 3 retries."""
+        if self._exit_retries >= self._max_exit_retries:
+            return False
+        if time.time() - self._last_exit_attempt < 3:
+            return False
+        return True
+
+    def record_exit_attempt(self):
+        self._last_exit_attempt = time.time()
+        self._exit_retries += 1
+
+    def reset_exit_retries(self):
+        self._exit_retries = 0
+
     def should_take_profit(self, snap: MarketSnapshot) -> bool:
         """Check if current position has hit take profit."""
         if not self.position.is_open:
@@ -152,6 +170,8 @@ class Strategy:
             entry_time=time.time(),
         )
         self.total_trades += 1
+        self._exit_retries = 0  # reset for new position
+        self._last_exit_attempt = 0
         logger.info(f"📊 Position opened: {result.side} {result.filled} @ {result.price:.2f}")
 
     def record_exit(self, snap: MarketSnapshot, result: TradeResult):
@@ -190,23 +210,26 @@ class Strategy:
             "reason": "",
         }
 
-        # Check exit first
+        # Check exit first (with cooldown to prevent spam)
+        # Market end always triggers immediate exit (bypass cooldown)
         if self.position.is_open:
-            if self.should_take_profit(snap):
-                decision["action"] = "EXIT_TP"
-                decision["side"] = "SELL"
-                decision["price"] = snap.yes_price if self.position.entry_side == "YES" else snap.no_price
-                decision["size"] = self.position.size
-                decision["reason"] = "Take profit hit"
-                return decision
+            market_ended = snap.seconds_remaining <= 0
+            if market_ended or self.can_attempt_exit():
+                if self.should_take_profit(snap):
+                    decision["action"] = "EXIT_TP"
+                    decision["side"] = "SELL"
+                    decision["price"] = snap.yes_price if self.position.entry_side == "YES" else snap.no_price
+                    decision["size"] = self.position.size
+                    decision["reason"] = "Take profit hit"
+                    return decision
 
-            if self.should_stop_loss(snap):
-                decision["action"] = "EXIT_SL"
-                decision["side"] = "SELL"
-                decision["price"] = snap.yes_price if self.position.entry_side == "YES" else snap.no_price
-                decision["size"] = self.position.size
-                decision["reason"] = "Stop loss triggered"
-                return decision
+                if market_ended or self.should_stop_loss(snap):
+                    decision["action"] = "EXIT_SL"
+                    decision["side"] = "SELL"
+                    decision["price"] = snap.yes_price if self.position.entry_side == "YES" else snap.no_price
+                    decision["size"] = self.position.size
+                    decision["reason"] = "Market ended" if market_ended else "Stop loss triggered"
+                    return decision
 
         # Check entry
         enter, side, price = self.should_enter(snap)

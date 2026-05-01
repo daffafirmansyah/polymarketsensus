@@ -121,10 +121,12 @@ def execute_entry(snap: MarketSnapshot, decision: dict):
 
 
 def execute_exit(snap: MarketSnapshot, reason: str):
-    """Execute position exit (sell)."""
+    """Execute position exit (sell) — with retry guard."""
     pos = trade_strategy.position
     if not pos.is_open:
         return
+
+    trade_strategy.record_exit_attempt()
 
     current_price = snap.yes_price if pos.entry_side == "YES" else snap.no_price
     side_label = "TAKE PROFIT" if reason == "TP" else "STOP LOSS"
@@ -139,6 +141,7 @@ def execute_exit(snap: MarketSnapshot, reason: str):
     )
 
     if result.success:
+        trade_strategy.reset_exit_retries()
         pnl = (current_price - pos.entry_price) * pos.size
         color = "green" if pnl > 0 else "red"
         console.print(
@@ -149,7 +152,7 @@ def execute_exit(snap: MarketSnapshot, reason: str):
         )
         trade_strategy.record_exit(snap, result)
     else:
-        console.print(f"[TRADE] [bold red]EXIT FAILED[/bold red]: {result.error}")
+        console.print(f"[TRADE] [bold red]EXIT FAILED[/bold red] (retry {trade_strategy._exit_retries}/{trade_strategy._max_exit_retries}): {result.error}")
 
 
 # ── Main Loop ─────────────────────────────

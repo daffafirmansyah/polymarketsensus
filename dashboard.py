@@ -130,6 +130,45 @@ def build_consensus_panel(snap: MarketSnapshot) -> Optional[Panel]:
     return Panel(content, title="🎯 CONSENSUS REACHED!", border_style="bold green")
 
 
+def build_market_panel(snap: MarketSnapshot) -> Panel:
+    """Build live market info panel."""
+    from datetime import datetime, timezone
+
+    start_str = datetime.fromtimestamp(snap.market_start_ts).strftime("%H:%M") if snap.market_start_ts else "?"
+    end_str = datetime.fromtimestamp(snap.market_end_ts).strftime("%H:%M") if snap.market_end_ts else "?"
+
+    remaining = snap.seconds_remaining
+    if remaining > 60:
+        countdown = f"T-{remaining // 60}m {remaining % 60}s"
+    else:
+        countdown = f"T-{remaining}s"
+
+    # Color code countdown
+    if remaining <= 30:
+        countdown_color = "red"
+    elif remaining <= 60:
+        countdown_color = "yellow"
+    else:
+        countdown_color = "green"
+
+    # YES/NO inline
+    yes_color = "green" if snap.yes_price > snap.no_price else "white"
+    no_color = "red" if snap.no_price > snap.yes_price else "white"
+
+    content = (
+        f"🕐 {start_str} → {end_str} UTC\n"
+        f"⏳ [{countdown_color}]{countdown}[/{countdown_color}]\n\n"
+        f"[bold {yes_color}]YES: {snap.yes_price:.3f}[/bold {yes_color}]  "
+        f"[bold {no_color}]NO: {snap.no_price:.3f}[/bold {no_color}]\n"
+        f"Bid: {snap.best_bid:.2f}  Ask: {snap.best_ask:.2f}\n\n"
+        f"Vol 24h: ${snap.volume_24h:,.0f}\n"
+        f"Liquidity: ${snap.liquidity:,.0f}\n"
+        f"Wallets: {snap.total_wallets}"
+    )
+
+    return Panel(content, title=f"📡 {snap.question}", border_style="bold magenta")
+
+
 def build_strategy_panel() -> Panel:
     """Build strategy parameters panel."""
     cfg = strategy_config
@@ -165,17 +204,18 @@ class Dashboard:
         """Render the full dashboard layout."""
         layout = Layout()
         layout.split(
-            Layout(name="top", size=10),
+            Layout(name="top", size=12),
             Layout(name="bottom"),
         )
 
-        # Top: status + consensus
+        # Top: market info + status + consensus + strategy
         top = Layout()
         if self.last_snap:
             top.split_row(
+                Layout(build_market_panel(self.last_snap), ratio=2),
                 Layout(build_status_panel(self.last_snap), ratio=2),
                 Layout(
-                    build_consensus_panel(self.last_snap) or Panel("Waiting...", title="🎯 Consensus"),
+                    build_consensus_panel(self.last_snap) or Panel("Waiting for consensus...", title="🎯 Consensus"),
                     ratio=1,
                 ),
                 Layout(build_strategy_panel(), ratio=1),

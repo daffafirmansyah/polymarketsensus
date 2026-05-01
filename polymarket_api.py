@@ -43,6 +43,7 @@ class MarketSnapshot:
     consensus_wallet_pct: float = 0.0
     consensus_volume_pct: float = 0.0
     # Market timing
+    market_start_ts: int = 0
     market_end_ts: int = 0
     seconds_remaining: int = 0
     # BTC price
@@ -317,7 +318,8 @@ class PolymarketClient:
         try:
             from datetime import datetime, timezone
             dt = datetime.fromisoformat(event_start.replace("Z", "+00:00"))
-            snap.market_end_ts = int(dt.timestamp()) + 300  # end = start + 5min
+            snap.market_start_ts = int(dt.timestamp())
+            snap.market_end_ts = snap.market_start_ts + 300  # end = start + 5min
         except Exception:
             pass
         end_str = market.get("endDate", "")

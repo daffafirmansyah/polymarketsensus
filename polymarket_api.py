@@ -339,18 +339,19 @@ class PolymarketClient:
         if snap.token_id_no:
             no_book = self.get_orderbook(snap.token_id_no)
 
-        def _parse_book(book: dict) -> tuple:
-            """Return (order_count, total_volume) from orderbook."""
+        # Parse orderbook — only count BIDS (buying pressure) for consensus.
+        # YES bids = people buying YES, NO bids = people buying NO.
+        # Asks = selling pressure (opposite signal), excluded from consensus.
+        def _parse_bids(book: dict) -> tuple:
             orders = 0
             volume = 0.0
-            for side_key in ("bids", "asks"):
-                for entry in book.get(side_key, []):
-                    orders += 1
-                    volume += float(entry.get("size", 0))
+            for entry in book.get("bids", []):
+                orders += 1
+                volume += float(entry.get("size", 0))
             return orders, volume
 
-        snap.yes_orders, snap.yes_volume = _parse_book(yes_book)
-        snap.no_orders, snap.no_volume = _parse_book(no_book)
+        snap.yes_orders, snap.yes_volume = _parse_bids(yes_book)
+        snap.no_orders, snap.no_volume = _parse_bids(no_book)
         snap.total_wallets = snap.yes_orders + snap.no_orders
 
         # 3. Consensus calculation

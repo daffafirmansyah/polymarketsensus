@@ -18,6 +18,7 @@ import signal
 import sys
 import time
 from datetime import datetime
+from typing import Optional
 
 from config import bot_config, strategy_config
 from polymarket_api import client as api_client, MarketSnapshot, TradeResult
@@ -154,19 +155,17 @@ def execute_exit(snap: MarketSnapshot, reason: str):
 # ── Main Loop ─────────────────────────────
 
 def run_loop():
-    """Main trading loop with live dashboard."""
+    """Main trading loop with live 1-second-refresh dashboard."""
     global shutdown
 
     console.print("[bold cyan]╔══════════════════════════════════════════╗[/bold cyan]")
     console.print("[bold cyan]║   Polymarket BTC 5m Consensus Bot       ║[/bold cyan]")
     console.print("[bold cyan]╚══════════════════════════════════════════╝[/bold cyan]")
     console.print(f"Mode: [yellow]DRY RUN[/yellow]" if bot_config.DRY_RUN else "Mode: [red]LIVE TRADING[/red]")
-    console.print(f"Market: {bot_config.MARKET_SLUG}")
-    console.print(f"Scan interval: {bot_config.SCAN_INTERVAL}s")
+    console.print(f"Scan interval: {bot_config.SCAN_INTERVAL}s | Refresh: 1s")
     console.print(f"Min Consensus: {strategy_config.MIN_CONSENSUS}%")
     console.print()
 
-    # Check credentials for live mode
     if not bot_config.DRY_RUN:
         if not bot_config.PRIVATE_KEY:
             console.print("[red]❌ PRIVATE_KEY not set! Switching to DRY RUN.[/red]")
@@ -175,45 +174,54 @@ def run_loop():
             console.print("[yellow]⚠️  LIVE TRADING MODE — real orders will be placed![/yellow]")
             console.print()
 
-    # Start dashboard
     dashboard.start()
+
+    # Track first-run + tick counter
+    ticks_since_fetch = bot_config.SCAN_INTERVAL  # force immediate first fetch
+    snap: Optional[MarketSnapshot] = None
 
     try:
         while not shutdown:
-            # Fetch snapshot
-            snap = api_client.get_snapshot()
+            # ── Fetch new data every SCAN_INTERVAL seconds ──
+            if ticks_since_fetch >= bot_config.SCAN_INTERVAL:
+                ticks_since_fetch = 0
+                new_snap = api_client.get_snapshot()
 
-            if not snap.slug:
-                console.print("[yellow]⚠️  No market data, retrying...[/yellow]")
-                dashboard.refresh()
-                time.sleep(bot_config.SCAN_INTERVAL)
-                continue
+                if not new_snap or not new_snap.slug:
+                    # Market not found — try to discover next one
+                    dashboard.refresh()
+                    time.sleep(1)
+                    continue
 
-            # Strategy evaluation
-            decision = trade_strategy.evaluate(snap)
+                snap = new_snap
 
-            # Execute based on decision
-            if decision["action"] == "ENTER":
-                dashboard.update(snap, decision)
-                dashboard.refresh()
-                execute_entry(snap, decision)
+                # Strategy evaluation + execution (only on fresh data)
+                decision = trade_strategy.evaluate(snap)
 
-            elif decision["action"] in ("EXIT_TP", "EXIT_SL"):
-                reason = "TP" if decision["action"] == "EXIT_TP" else "SL"
-                dashboard.update(snap, decision)
-                dashboard.refresh()
-                execute_exit(snap, reason)
-
+                if decision["action"] == "ENTER":
+                    dashboard.update(snap, decision)
+                    dashboard.refresh()
+                    execute_entry(snap, decision)
+                elif decision["action"] in ("EXIT_TP", "EXIT_SL"):
+                    reason = "TP" if decision["action"] == "EXIT_TP" else "SL"
+                    dashboard.update(snap, decision)
+                    dashboard.refresh()
+                    execute_exit(snap, reason)
+                else:
+                    dashboard.update(snap, decision)
             else:
-                # Just update dashboard
-                dashboard.update(snap, decision)
-                dashboard.refresh()
+                # ── Tick countdown between fetches ──
+                if snap and snap.seconds_remaining > 0:
+                    snap.seconds_remaining = max(0, snap.market_end_ts - int(time.time()))
 
-            # Sleep
-            for _ in range(bot_config.SCAN_INTERVAL):
-                if shutdown:
-                    break
-                time.sleep(1)
+            # Refresh dashboard every 1 second
+            dashboard.refresh()
+
+            # Sleep 1 second
+            if shutdown:
+                break
+            time.sleep(1)
+            ticks_since_fetch += 1
 
     except KeyboardInterrupt:
         pass
